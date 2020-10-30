@@ -36,42 +36,52 @@ Implementation Notes
    https://github.com/adafruit/circuitpython/releases
 
 """
+import struct
 import time
-import rtc
 
 __version__ = "0.0.0-auto.0"
 __repo__ = "https://github.com/adafruit/Adafruit_CircuitPython_NTP.git"
 
+NTP_TO_UNIX_EPOCH = 2208988800  # 1970-01-01 00:00:00
 
 class NTP:
     """Network Time Protocol (NTP) helper module for CircuitPython.
-    This module does not handle daylight savings or local time.
+    This module does not handle daylight savings or local time. It simply requests
+    UTC from a NTP server.
 
-    :param adafruit_esp32spi esp: ESP32SPI object.
+    :param object socketpool: A socket provider such as CPython's `socket` module.
     """
 
-    def __init__(self, esp):
-        # Verify ESP32SPI module
-        if "ESP_SPIcontrol" in str(type(esp)):
-            self._esp = esp
-        else:
-            raise TypeError("Provided object is not an ESP_SPIcontrol object.")
-        self.valid_time = False
+    def __init__(self, socketpool, *, server="pool.ntp.org", port=123):
+        self._pool = socketpool
+        self._server = server
+        self._port = port
+        self._packet = bytearray(48)
 
-    def set_time(self, tz_offset=0):
-        """Fetches and sets the microcontroller's current time
-        in seconds since since Jan 1, 1970.
+        if time.gmtime(0).tm_year != 1970:
+            raise OSError("Epoch must be 1970")
 
-        :param int tz_offset: The offset of the local timezone,
-            in seconds west of UTC (negative in most of Western Europe,
-            positive in the US, zero in the UK).
-        """
+        # This is our estimated start time for the monotonic clock. We adjust it based on the ntp
+        # responses.
+        self._monotonic_start = 0
 
-        try:
-            now = self._esp.get_time()
-            now = time.localtime(now[0] + tz_offset)
-            rtc.RTC().datetime = now
-            self.valid_time = True
-        except ValueError as error:
-            print(str(error))
-            return
+        self.next_sync = 0
+
+    @property
+    def datetime(self):
+        if time.monotonic_ns() > self.next_sync:
+            self._packet[0] = 0b00100011  # Not leap second, NTP version 4, Client mode
+            for i in range(1, len(self._packet)):
+                self._packet[i] = 0
+            with self._pool.socket(self._pool.AF_INET, self._pool.SOCK_DGRAM) as sock:
+                sock.sendto(self._packet, (self._server, self._port))
+                size, address = sock.recvfrom_into(self._packet)
+                # Get the time in the context to minimize the difference between it and receiving
+                # the packet.
+                destination = time.monotonic_ns()
+            poll = struct.unpack_from("!B", self._packet, offset=2)[0]
+            self.next_sync = destination + (2 ** poll) * 1_000_000_000
+            seconds = struct.unpack_from("!I", self._packet, offset=len(self._packet) - 8)[0]
+            self._monotonic_start = seconds - NTP_TO_UNIX_EPOCH - (destination // 1_000_000_000)
+
+        return time.gmtime(time.monotonic_ns() // 1_000_000_000 + self._monotonic_start)
