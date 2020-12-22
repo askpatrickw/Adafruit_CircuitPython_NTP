@@ -58,11 +58,9 @@ class NTP:
         self._port = port
         self._packet = bytearray(48)
 
-        if time.gmtime(0).tm_year != 1970:
-            raise OSError("Epoch must be 1970")
 
-        # This is our estimated start time for the monotonic clock. We adjust it based on the ntp
-        # responses.
+        # This is our estimated start time for the monotonic clock.
+        # We adjust it based on the ntp responses.
         self._monotonic_start = 0
 
         self.next_sync = 0
@@ -84,4 +82,4 @@ class NTP:
             seconds = struct.unpack_from("!I", self._packet, offset=len(self._packet) - 8)[0]
             self._monotonic_start = seconds - NTP_TO_UNIX_EPOCH - (destination // 1_000_000_000)
 
-        return time.gmtime(time.monotonic_ns() // 1_000_000_000 + self._monotonic_start)
+        return time.localtime(time.monotonic_ns() // 1_000_000_000 + self._monotonic_start)
