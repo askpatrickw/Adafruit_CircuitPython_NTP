@@ -15,7 +15,7 @@ except ImportError:
     print("WiFi secrets are kept in secrets.py, please add them there!")
     raise
 
-wifi.radio.connect(secrets["ssid"], secrets["wifi_password"])
+wifi.radio.connect(secrets["ssid"], secrets["password"])
 
 pool = socketpool.SocketPool(wifi.radio)
 ntp = adafruit_ntp.NTP(pool)
