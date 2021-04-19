@@ -52,10 +52,11 @@ class NTP:
     :param object socketpool: A socket provider such as CPython's `socket` module.
     """
 
-    def __init__(self, socketpool, *, server="pool.ntp.org", port=123):
+    def __init__(self, socketpool, *, server="pool.ntp.org", port=123, timeout=None):
         self._pool = socketpool
         self._server = server
         self._port = port
+        self._timeout = timeout
         self._packet = bytearray(48)
 
 
@@ -72,6 +73,7 @@ class NTP:
             for i in range(1, len(self._packet)):
                 self._packet[i] = 0
             with self._pool.socket(self._pool.AF_INET, self._pool.SOCK_DGRAM) as sock:
+                sock.settimeout(self._timeout)
                 sock.sendto(self._packet, (self._server, self._port))
                 size, address = sock.recvfrom_into(self._packet)
                 # Get the time in the context to minimize the difference between it and receiving
